@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aws-devops-dashboard
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aws-devops-dashboard
+  template:
+    metadata:
+      labels:
+        app: aws-devops-dashboard
+    spec:
+      containers:
+      - name: dashboard
+        image: minhtri2582/aws-devops:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: PASSWORD_LOGIN
+          valueFrom:
+            secretKeyRef:
+              name: aws-devops-dashboard-secrets
+              key: PASSWORD_LOGIN
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws-devops-dashboard-secrets
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws-devops-dashboard-secrets
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_SESSION_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: aws-devops-dashboard-secrets
+              key: AWS_SESSION_TOKEN
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "256Mi"

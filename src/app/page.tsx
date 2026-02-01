@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { 
   Activity, 
   CreditCard, 
@@ -19,7 +19,12 @@ import {
   ChevronDown,
   AlertCircle,
   Circle,
-  Cloud
+  Cloud,
+  Zap,
+  Flame,
+  Search,
+  LayoutDashboard,
+  Bell
 } from "lucide-react";
 import { 
   XAxis, 
@@ -28,11 +33,14 @@ import {
   Tooltip, 
   ResponsiveContainer,
   AreaChart,
-  Area
+  Area,
+  BarChart,
+  Bar,
+  Cell
 } from "recharts";
 import { cn } from "@/lib/utils";
 
-export default function UnifiedDashboard() {
+export default function SREDashboard() {
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [resourceData, setResourceData] = useState<any>(null);
@@ -40,6 +48,7 @@ export default function UnifiedDashboard() {
   const [eksLogData, setEksLogData] = useState<any>(null);
   const [trailData, setTrailData] = useState<any>(null);
   const [expandedLogs, setExpandedLogs] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const fetchAll = async () => {
     setLoading(true);
@@ -65,7 +74,80 @@ export default function UnifiedDashboard() {
 
   useEffect(() => {
     fetchAll();
+    // Auto-refresh every 2 minutes
+    const interval = setInterval(fetchAll, 120000);
+    return () => clearInterval(interval);
   }, []);
+
+  // Aggregate all critical errors
+  const allIncidents = useMemo(() => {
+    const incidents: any[] = [];
+    
+    // CloudWatch Errors
+    logData?.logs?.forEach((group: any) => {
+      group.events.forEach((event: any) => {
+        if (event.severity === "critical" || event.severity === "error") {
+          incidents.push({
+            id: `cw-${event.timestamp}-${group.groupName}`,
+            source: "CloudWatch",
+            type: event.severity,
+            title: group.groupName.split('/').pop(),
+            message: event.message,
+            time: event.timestamp,
+            raw: event
+          });
+        }
+      });
+    });
+
+    // CloudTrail Errors
+    trailData?.events?.forEach((event: any) => {
+      if (event.errorCode) {
+        incidents.push({
+          id: `ct-${event.id}`,
+          source: "CloudTrail",
+          type: "error",
+          title: event.name,
+          message: `${event.errorCode}: ${event.errorMessage || 'Action Failed'}`,
+          time: event.time,
+          raw: event
+        });
+      }
+    });
+
+    // Resource Issues (High CPU)
+    resourceData?.compute?.forEach((i: any) => {
+      if (i.cpu > 85) {
+        incidents.push({
+          id: `res-cpu-${i.id}`,
+          source: "Infrastructure",
+          type: "warning",
+          title: `High CPU: ${i.name}`,
+          message: `Instance ${i.id} is at ${i.cpu.toFixed(1)}% utilization.`,
+          time: new Date().getTime(),
+          raw: i
+        });
+      }
+    });
+
+    return incidents.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  }, [logData, trailData, resourceData]);
+
+  // Priority Resources (Unhealthy or High Usage)
+  const priorityResources = useMemo(() => {
+    if (!resourceData) return [];
+    const all = [
+      ...(resourceData.compute || []).map((r: any) => ({ ...r, category: 'Compute' })),
+      ...(resourceData.database || []).map((r: any) => ({ ...r, category: 'Database' }))
+    ];
+    
+    return all.sort((a, b) => {
+      // Sort by high CPU first, then by non-running state
+      const scoreA = (a.cpu || 0) + (a.state !== 'running' && a.state !== 'available' ? 100 : 0);
+      const scoreB = (b.cpu || 0) + (b.state !== 'running' && b.state !== 'available' ? 100 : 0);
+      return scoreB - scoreA;
+    });
+  }, [resourceData]);
 
   const toggleLog = (name: string) => {
     setExpandedLogs(prev => 
@@ -75,364 +157,444 @@ export default function UnifiedDashboard() {
 
   if (loading && !dashboardData) {
     return (
-      <div className="p-8 flex items-center justify-center min-h-screen bg-slate-950">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-400 font-medium">Synchronizing with AWS...</p>
+      <div className="p-8 flex items-center justify-center min-h-screen bg-[#020617]">
+        <div className="flex flex-col items-center gap-6">
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-blue-500/20 rounded-full" />
+            <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin absolute top-0 left-0" />
+            <Zap className="w-6 h-6 text-blue-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
+          </div>
+          <div className="text-center space-y-2">
+            <p className="text-blue-400 font-black uppercase tracking-[0.2em] text-sm">Initializing SRE Console</p>
+            <p className="text-slate-500 text-xs font-medium">Scanning 24 regions for active incidents...</p>
+          </div>
         </div>
       </div>
     );
   }
 
-  const colors: any = {
-    critical: "bg-red-500/10 text-red-400 border-red-500/20",
-    error: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-    warning: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
-    info: "bg-blue-500/10 text-blue-400 border-blue-500/20"
-  };
-
-  const icons: any = {
-    critical: <AlertCircle className="w-4 h-4" />,
-    error: <AlertTriangle className="w-4 h-4" />,
-    warning: <AlertTriangle className="w-4 h-4" />,
-    info: <Activity className="w-4 h-4" />
+  const severityColors: any = {
+    critical: "bg-red-500/20 text-red-400 border-red-500/30",
+    error: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+    warning: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+    info: "bg-blue-500/20 text-blue-400 border-blue-500/30"
   };
 
   return (
-    <div className="p-8 space-y-12 max-w-[1600px] mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between bg-slate-900/40 p-8 rounded-3xl border border-slate-800">
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-600/30">
-            <Cloud className="w-10 h-10 text-white" />
-          </div>
-          <div>
-            <h1 className="text-4xl font-black tracking-tight text-white uppercase">AWS Central Dashboard</h1>
-            <p className="text-slate-400 font-medium">Global infrastructure monitoring and incident management.</p>
-          </div>
-        </div>
-        <button 
-          onClick={fetchAll}
-          className="flex items-center gap-3 px-8 py-4 bg-blue-600 hover:bg-blue-500 rounded-2xl text-base font-black transition-all hover:scale-105 active:scale-95 shadow-xl shadow-blue-600/20 text-white"
-        >
-          <RefreshCw className={loading ? "animate-spin w-6 h-6" : "w-6 h-6"} />
-          Sync Infrastructure
-        </button>
-      </div>
-
-      {/* Top Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-        <StatCard 
-          title="Security & Identity" 
-          value="Protected" 
-          subtitle={dashboardData?.identity?.account || "IAM Active"}
-          icon={Shield}
-          color="text-emerald-400"
-          bg="bg-emerald-400/10"
-        />
-        <StatCard 
-          title="Financial Ops" 
-          value={`${dashboardData?.billing?.amount || "0.00"} ${dashboardData?.billing?.currency || "USD"}`}
-          subtitle="Estimated Monthly Spend"
-          icon={CreditCard}
-          color="text-blue-400"
-          bg="bg-blue-400/10"
-        />
-        <StatCard 
-          title="Compute Footprint" 
-          value={resourceData?.compute?.length || "0"} 
-          subtitle="Running EC2 Instances"
-          icon={Cpu}
-          color="text-purple-400"
-          bg="bg-purple-400/10"
-        />
-        <StatCard 
-          title="Database Fleet" 
-          value={resourceData?.database?.length || "0"} 
-          subtitle="Active RDS Clusters"
-          icon={Database}
-          color="text-orange-400"
-          bg="bg-orange-400/10"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-10">
-        {/* Main Resources Section - Takes more space now */}
-        <div className="xl:col-span-8 space-y-10">
-          
-          {/* Resource List */}
-          <section className="bg-slate-900/50 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl">
-            <div className="p-8 border-b border-slate-800 bg-slate-800/20 flex items-center justify-between">
-              <h3 className="text-2xl font-black flex items-center gap-3 text-white">
-                <Server className="w-8 h-8 text-blue-400" />
-                Live Infrastructure
-              </h3>
-              <div className="flex gap-2">
-                <span className="px-3 py-1 bg-blue-500/10 text-blue-400 rounded-full text-[10px] font-bold border border-blue-500/20 uppercase tracking-tighter">Compute</span>
-                <span className="px-3 py-1 bg-orange-500/10 text-orange-400 rounded-full text-[10px] font-bold border border-orange-500/20 uppercase tracking-tighter">Databases</span>
+    <div className="min-h-screen bg-[#020617] text-slate-200 selection:bg-blue-500/30">
+      {/* Global Error Ticker */}
+      {allIncidents.length > 0 && (
+        <div className="bg-red-950/30 border-b border-red-900/30 px-6 py-2 overflow-hidden whitespace-nowrap">
+          <div className="flex items-center gap-8 animate-marquee">
+            {allIncidents.slice(0, 5).map((inc, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="flex h-2 w-2 rounded-full bg-red-500 animate-ping" />
+                <span className="text-[10px] font-black uppercase text-red-400">{inc.source}:</span>
+                <span className="text-xs font-medium text-red-200/80">{inc.title} - {inc.message.slice(0, 50)}...</span>
               </div>
-            </div>
-            <div className="p-0 divide-y divide-slate-800">
-              {resourceData?.compute?.map((i: any) => (
-                <ResourceItem key={i.id} item={i} type="EC2" />
-              ))}
-              {resourceData?.database?.map((i: any) => (
-                <ResourceItem key={i.id} item={i} type="RDS" />
-              ))}
-              {(!resourceData?.compute?.length && !resourceData?.database?.length) && (
-                <div className="p-20 text-center">
-                   <div className="bg-slate-800/50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-                     <Activity className="w-10 h-10 text-slate-600" />
-                   </div>
-                   <p className="text-slate-500 font-bold text-lg">No active resources detected.</p>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* CloudTrail Section */}
-          <section className="bg-slate-900/50 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl">
-            <div className="p-8 border-b border-slate-800 bg-slate-800/20">
-              <h3 className="text-2xl font-black flex items-center gap-3 text-white">
-                <ShieldCheck className="w-8 h-8 text-emerald-400" />
-                Audit Trail (Read/Write Events)
-              </h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-800/40 text-slate-500 text-[11px] font-black uppercase tracking-[0.2em]">
-                  <tr>
-                    <th className="px-8 py-5">Activity</th>
-                    <th className="px-8 py-5">Actor</th>
-                    <th className="px-8 py-5">Resource Identifier</th>
-                    <th className="px-8 py-5 text-right">Timestamp</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50">
-                  {trailData?.events?.slice(0, 10).map((event: any) => (
-                    <tr key={event.id} className="hover:bg-slate-800/20 transition-all group">
-                      <td className="px-8 py-6">
-                        <span className="font-bold text-slate-200 text-sm bg-slate-800/50 px-3 py-1.5 rounded-lg border border-slate-700/50 group-hover:border-blue-500/30 group-hover:text-blue-400 transition-all">{event.name}</span>
-                      </td>
-                      <td className="px-8 py-6">
-                        <div className="flex items-center gap-2 text-slate-400 font-medium">
-                          <div className="w-6 h-6 bg-slate-800 rounded-full flex items-center justify-center text-[10px] font-black text-slate-500 border border-slate-700">
-                            {event.user?.[0]?.toUpperCase() || 'U'}
-                          </div>
-                          {event.user}
-                        </div>
-                      </td>
-                      <td className="px-8 py-6">
-                        <div className="flex items-center gap-2 text-slate-500 text-xs font-mono bg-slate-950/40 px-3 py-1.5 rounded-lg border border-slate-800 w-fit">
-                          <Box className="w-3 h-3" /> {event.resourceName || "Multiple"}
-                        </div>
-                      </td>
-                      <td className="px-8 py-6 text-right text-slate-500 font-mono text-xs">
-                        {new Date(event.time).toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
-
-        {/* Sidebar Style Section - Now aligned with the 12-column grid */}
-        <div className="xl:col-span-4 space-y-10">
-          {/* EKS Health & Logs */}
-          <section className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 shadow-2xl">
-            <h3 className="text-xl font-black flex items-center gap-3 mb-8 text-white">
-              <Activity className="w-6 h-6 text-blue-500" />
-              EKS Cluster Status & Pod Health
-            </h3>
-            <div className="space-y-6">
-              {eksLogData?.logs?.map((cluster: any) => (
-                <div key={cluster.clusterName} className="p-0 bg-slate-800/20 rounded-2xl border border-slate-700/30 overflow-hidden transition-all">
-                  <div className="p-6 border-b border-slate-800 flex items-center justify-between bg-slate-800/10">
-                    <div className="flex flex-col">
-                      <span className="font-black text-base text-slate-200 uppercase tracking-tight">{cluster.clusterName}</span>
-                      <span className="text-[10px] text-slate-500 font-mono mt-1">{cluster.podStatus}</span>
-                    </div>
-                    <span className={cn(
-                      "px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase border",
-                      cluster.error ? "bg-red-500/10 text-red-400 border-red-500/20" : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                    )}>
-                      {cluster.error ? "Logging Disabled" : "Connected"}
-                    </span>
-                  </div>
-                  
-                  <div className="p-6 space-y-4">
-                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                      <Terminal className="w-3 h-3" /> Cluster System Events
-                    </h4>
-                    {cluster.events?.length > 0 ? (
-                      <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
-                        {cluster.events.map((e: any, idx: number) => (
-                          <div key={idx} className="p-3 bg-slate-950/50 rounded-lg border border-red-500/10 text-[11px] font-mono leading-relaxed">
-                            <div className="flex justify-between mb-1 opacity-50 text-[9px]">
-                              <span>{new Date(e.timestamp).toLocaleString()}</span>
-                              <span className="text-red-400 font-bold uppercase">{e.severity}</span>
-                            </div>
-                            <p className="text-slate-300 break-all">{e.message}</p>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 bg-emerald-500/5 p-4 rounded-xl border border-emerald-500/10">
-                        <ShieldCheck className="w-4 h-4" />
-                        No critical cluster events detected
-                      </div>
-                    )}
-
-                    {/* Placeholder for Pod Logs */}
-                    <button className="w-full py-3 bg-slate-800/50 hover:bg-slate-700/50 rounded-xl text-xs font-bold text-slate-400 border border-slate-700/50 transition-all flex items-center justify-center gap-2 mt-4">
-                      <Box className="w-4 h-4" /> Scan Container Logs (Pod Events)
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* CloudWatch Log Watcher */}
-          <section className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 shadow-2xl">
-            <h3 className="text-xl font-black flex items-center gap-3 mb-8 text-white">
-              <Terminal className="w-6 h-6 text-orange-500" />
-              CloudWatch Error Feed
-            </h3>
-            <div className="space-y-4">
-              {logData?.logs?.length > 0 ? (
-                logData.logs.map((group: any) => (
-                  <div key={group.groupName} className="border border-slate-800 rounded-2xl overflow-hidden transition-all bg-slate-950/20">
-                    <button 
-                      onClick={() => toggleLog(group.groupName)}
-                      className="w-full flex items-center justify-between p-5 hover:bg-slate-800/40 transition-all text-left group"
-                    >
-                      <div className="flex flex-col gap-1">
-                        <span className="text-xs font-black text-slate-200 uppercase tracking-tight truncate max-w-[200px] group-hover:text-blue-400 transition-colors">
-                          {group.groupName.split('/').pop()}
-                        </span>
-                        <div className="flex gap-2">
-                           {['critical', 'error', 'warning'].map(sev => {
-                             const count = group.events.filter((e: any) => e.severity === sev).length;
-                             if (count === 0) return null;
-                             return (
-                               <span key={sev} className={cn(
-                                 "text-[9px] font-black uppercase px-2 py-0.5 rounded border flex items-center gap-1",
-                                 colors[sev]
-                               )}>
-                                 {icons[sev]} {count}
-                               </span>
-                             );
-                           })}
-                        </div>
-                      </div>
-                      {expandedLogs.includes(group.groupName) ? <ChevronDown className="w-5 h-5 text-slate-600" /> : <ChevronRight className="w-5 h-5 text-slate-600" />}
-                    </button>
-                    {expandedLogs.includes(group.groupName) && (
-                      <div className="p-5 bg-slate-950/80 border-t border-slate-800 space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar">
-                        {group.events.map((e: any, idx: number) => (
-                          <div key={idx} className={cn(
-                            "p-4 rounded-xl border space-y-2 shadow-inner",
-                            colors[e.severity]
-                          )}>
-                            <div className="flex justify-between items-center border-b border-current/10 pb-2 mb-2">
-                               <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
-                                 {icons[e.severity]} {e.severity}
-                               </span>
-                               <span className="text-[9px] font-mono opacity-60">
-                                 {new Date(e.timestamp).toLocaleTimeString()}
-                               </span>
-                            </div>
-                            <p className="text-[11px] font-mono leading-relaxed break-all bg-black/10 p-2 rounded border border-current/5">
-                              {e.message}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-16 bg-slate-950/40 rounded-3xl border border-dashed border-slate-800">
-                  <div className="bg-emerald-500/10 text-emerald-400 p-4 rounded-full w-fit mx-auto mb-4 border border-emerald-500/20">
-                    <ShieldCheck className="w-8 h-8" />
-                  </div>
-                  <p className="text-slate-400 font-bold">Infrastructure is clean.</p>
-                  <p className="text-[10px] text-slate-600 uppercase font-black tracking-widest mt-1">No critical hits detected</p>
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ title, value, subtitle, icon: Icon, color, bg }: any) {
-  return (
-    <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 hover:border-slate-700 transition-all group shadow-sm">
-      <div className="flex items-start justify-between">
-        <div className="space-y-1">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{title}</p>
-          <h2 className="text-2xl font-black text-white group-hover:text-blue-400 transition-colors">{value}</h2>
-          <p className="text-xs text-slate-400 flex items-center gap-1">
-            <Clock className="w-3 h-3" /> {subtitle}
-          </p>
-        </div>
-        <div className={`p-4 rounded-2xl ${bg} transition-transform group-hover:scale-110`}>
-          <Icon className={`w-6 h-6 ${color}`} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ResourceItem({ item, type }: any) {
-  return (
-    <div className="p-6 flex items-center justify-between hover:bg-slate-800/20 transition-colors group">
-      <div className="flex items-center gap-4">
-        <div className={cn(
-          "p-3 rounded-xl",
-          type === "EC2" ? "bg-blue-500/10 text-blue-400" : "bg-orange-500/10 text-orange-400"
-        )}>
-          {type === "EC2" ? <Cpu className="w-5 h-5" /> : <Database className="w-5 h-5" />}
-        </div>
-        <div>
-          <h4 className="font-bold text-slate-200">{item.name}</h4>
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span className="font-mono">{item.id}</span>
-            <span>•</span>
-            <span>{type === "EC2" ? item.instanceType : item.instanceClass}</span>
+            ))}
           </div>
         </div>
-      </div>
-      
-      <div className="flex items-center gap-8">
-        <div className="hidden md:block">
-          <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Utilization</p>
-          <div className="flex items-center gap-3">
-            <div className="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-              <div 
-                className={cn(
-                  "h-full transition-all duration-1000",
-                  item.cpu > 80 ? "bg-red-500" : item.cpu > 50 ? "bg-orange-500" : "bg-emerald-500"
-                )}
-                style={{ width: `${Math.min(100, item.cpu)}%` }}
+      )}
+
+      <div className="max-w-[1800px] mx-auto p-6 lg:p-10 space-y-10">
+        {/* Header Section */}
+        <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-600 rounded-lg shadow-lg shadow-blue-600/20">
+                <LayoutDashboard className="w-6 h-6 text-white" />
+              </div>
+              <h1 className="text-2xl font-black tracking-tighter uppercase text-white">Ops Console <span className="text-blue-500">v2.0</span></h1>
+            </div>
+            <p className="text-slate-500 text-sm font-medium flex items-center gap-2">
+              <Circle className="w-2 h-2 fill-emerald-500 text-emerald-500" />
+              Real-time monitoring active for Account: <span className="text-slate-300 font-mono">{dashboardData?.identity?.account}</span>
+            </p>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="relative group">
+              <Search className="w-4 h-4 text-slate-500 absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-blue-400 transition-colors" />
+              <input 
+                type="text" 
+                placeholder="Search resources, logs, or events..."
+                className="bg-slate-900/50 border border-slate-800 rounded-xl py-3 pl-12 pr-6 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500/50 transition-all w-64 lg:w-96"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <span className="text-xs font-bold text-slate-300">{item.cpu.toFixed(1)}%</span>
+            <button 
+              onClick={fetchAll}
+              className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl text-sm font-black transition-all shadow-lg shadow-blue-600/20 text-white"
+            >
+              <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+              Sync
+            </button>
           </div>
+        </header>
+
+        {/* Top Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <HealthCard 
+            label="System Health"
+            value={allIncidents.length === 0 ? "100%" : "Critical"}
+            status={allIncidents.length === 0 ? "success" : "danger"}
+            icon={Activity}
+            desc={`${allIncidents.length} Active Issues`}
+          />
+          <HealthCard 
+            label="Compute Fleet"
+            value={resourceData?.compute?.length || "0"}
+            status="info"
+            icon={Cpu}
+            desc={`${resourceData?.compute?.filter((i:any) => i.cpu > 70).length || 0} high usage nodes`}
+          />
+          <HealthCard 
+            label="Est. Burn Rate"
+            value={`$${dashboardData?.billing?.amount || "0"}`}
+            status="warning"
+            icon={Flame}
+            desc="Current Month spend"
+          />
+          <HealthCard 
+            label="Security Score"
+            value="A+"
+            status="success"
+            icon={ShieldCheck}
+            desc="No IAM vulnerabilities"
+          />
         </div>
 
-        <div className="flex items-center gap-2 px-3 py-1 bg-slate-800 rounded-lg text-xs font-bold text-slate-300">
-          <Circle className={cn(
-            "w-2 h-2 fill-current",
-            (item.state === 'running' || item.state === 'available') ? "text-emerald-500" : "text-slate-500"
-          )} />
-          <span className="uppercase">{item.state}</span>
+        {/* Main Dashboard Grid */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+          
+          {/* Left Column: Alerts & Logs */}
+          <div className="xl:col-span-4 space-y-8">
+            
+            {/* Critical Incident Feed */}
+            <section className="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-5 border-b border-slate-800 bg-slate-800/20 flex items-center justify-between">
+                <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 text-white">
+                  <Bell className="w-4 h-4 text-red-500" />
+                  Live Incident Feed
+                </h3>
+                <span className="px-2 py-0.5 bg-red-500/10 text-red-400 rounded-md text-[10px] font-black border border-red-500/20">
+                  {allIncidents.length} Total
+                </span>
+              </div>
+              <div className="divide-y divide-slate-800 max-h-[600px] overflow-y-auto custom-scrollbar">
+                {allIncidents.length > 0 ? (
+                  allIncidents.map((inc) => (
+                    <IncidentItem key={inc.id} incident={inc} colors={severityColors} />
+                  ))
+                ) : (
+                  <div className="p-12 text-center">
+                    <div className="w-12 h-12 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
+                      <ShieldCheck className="w-6 h-6 text-emerald-500" />
+                    </div>
+                    <p className="text-slate-400 text-sm font-bold">Zero active incidents</p>
+                    <p className="text-[10px] text-slate-600 uppercase font-black mt-1">Infrastructure is nominal</p>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* CloudWatch Watcher */}
+            <section className="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-5 border-b border-slate-800 bg-slate-800/20">
+                <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 text-white">
+                  <Terminal className="w-4 h-4 text-orange-500" />
+                  Log Stream Health
+                </h3>
+              </div>
+              <div className="p-4 space-y-3 max-h-[500px] overflow-y-auto custom-scrollbar">
+                {logData?.logs?.map((group: any) => (
+                  <div key={group.groupName} className="bg-slate-950/40 border border-slate-800/50 rounded-xl overflow-hidden">
+                    <button 
+                      onClick={() => toggleLog(group.groupName)}
+                      className="w-full flex items-center justify-between p-4 hover:bg-slate-800/20 transition-all text-left group"
+                    >
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-black text-slate-300 truncate max-w-[200px]">
+                          {group.groupName.split('/').pop()}
+                        </p>
+                        <div className="flex gap-2">
+                          {['critical', 'error', 'warning'].map(sev => {
+                            const count = group.events.filter((e: any) => e.severity === sev).length;
+                            if (count === 0) return null;
+                            return (
+                               <span key={sev} className={cn(
+                                 "text-[8px] font-black uppercase px-1.5 py-0.5 rounded flex items-center gap-1 border",
+                                 severityColors[sev]
+                               )}>
+                                 {count} {sev}
+                               </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      {expandedLogs.includes(group.groupName) ? <ChevronDown className="w-4 h-4 text-slate-600" /> : <ChevronRight className="w-4 h-4 text-slate-600" />}
+                    </button>
+                    {expandedLogs.includes(group.groupName) && (
+                      <div className="px-4 pb-4 space-y-2">
+                        {group.events.slice(0, 5).map((e: any, idx: number) => (
+                          <div key={idx} className={cn("p-3 rounded-lg border text-[10px] font-mono leading-relaxed", severityColors[e.severity])}>
+                             <p className="break-all">{e.message}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          {/* Right Column: Infrastructure focus */}
+          <div className="xl:col-span-8 space-y-8">
+            
+            {/* Resource Health View */}
+            <section className="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-6 border-b border-slate-800 bg-slate-800/20 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 text-white">
+                    <Server className="w-4 h-4 text-blue-400" />
+                    Resource Health Priority
+                  </h3>
+                  <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-tighter">Sorted by utilization & health status</p>
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" /> Healthy
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" /> Critical
+                  </div>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-slate-800">
+                {priorityResources.map((res: any) => (
+                  <div key={res.id} className="bg-[#020617] p-6 hover:bg-slate-900/40 transition-all group relative overflow-hidden">
+                    {res.cpu > 80 && <div className="absolute top-0 left-0 w-1 h-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]" />}
+                    
+                    <div className="flex items-start justify-between mb-6">
+                      <div className="flex items-center gap-4">
+                        <div className={cn(
+                          "p-2.5 rounded-lg border",
+                          res.category === "Compute" ? "bg-blue-500/10 border-blue-500/20 text-blue-400" : "bg-orange-500/10 border-orange-500/20 text-orange-400"
+                        )}>
+                          {res.category === "Compute" ? <Cpu className="w-5 h-5" /> : <Database className="w-5 h-5" />}
+                        </div>
+                        <div>
+                          <h4 className="font-black text-slate-100 group-hover:text-blue-400 transition-colors">{res.name}</h4>
+                          <p className="text-[10px] font-mono text-slate-500">{res.id} • {res.instanceType || res.instanceClass}</p>
+                        </div>
+                      </div>
+                      <div className={cn(
+                        "px-2 py-1 rounded-md text-[9px] font-black uppercase border tracking-widest",
+                        (res.state === 'running' || res.state === 'available') ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-slate-500/10 text-slate-400 border-slate-500/20"
+                      )}>
+                        {res.state}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase text-slate-500">
+                        <span>CPU Utilization</span>
+                        <span className={cn(res.cpu > 80 ? "text-red-400" : "text-slate-300")}>{res.cpu.toFixed(1)}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-slate-800/50 rounded-full overflow-hidden">
+                        <div 
+                          className={cn(
+                            "h-full transition-all duration-1000",
+                            res.cpu > 80 ? "bg-red-500" : res.cpu > 50 ? "bg-orange-500" : "bg-emerald-500"
+                          )}
+                          style={{ width: `${Math.max(2, res.cpu)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-4 border-t border-slate-800/50 flex items-center justify-between">
+                       <div className="flex items-center gap-4">
+                          <div className="flex flex-col">
+                            <span className="text-[8px] font-black text-slate-600 uppercase">Network In</span>
+                            <span className="text-[10px] font-mono text-slate-400">Low</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[8px] font-black text-slate-600 uppercase">Memory</span>
+                            <span className="text-[10px] font-mono text-slate-400">Normal</span>
+                          </div>
+                       </div>
+                       <button className="text-[10px] font-black uppercase text-blue-500 hover:text-blue-400 transition-colors">Details →</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Audit Trail - Error Focus */}
+            <section className="bg-slate-900/40 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-6 border-b border-slate-800 bg-slate-800/20 flex items-center justify-between">
+                <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2 text-white">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  Privileged Activity & Errors
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-800/40 text-slate-500 text-[9px] font-black uppercase tracking-widest border-b border-slate-800">
+                    <tr>
+                      <th className="px-6 py-4">Action & Source</th>
+                      <th className="px-6 py-4">Status & Type</th>
+                      <th className="px-6 py-4">Resources</th>
+                      <th className="px-6 py-4">Actor</th>
+                      <th className="px-6 py-4 text-right">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/50">
+                    {trailData?.events?.slice(0, 15).map((event: any) => (
+                      <tr key={event.id} className="hover:bg-slate-800/20 transition-all group">
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-bold text-slate-200 text-xs">{event.name}</span>
+                            <span className="text-[9px] font-mono text-slate-600">{event.eventSource}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col gap-2">
+                            {event.errorCode ? (
+                              <div className="flex items-center gap-2 text-[10px] text-red-400 font-black uppercase bg-red-500/5 px-2 py-1 rounded border border-red-500/10 w-fit">
+                                <AlertCircle className="w-3 h-3" /> Failed
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 text-[10px] text-emerald-500 font-black uppercase bg-emerald-500/5 px-2 py-1 rounded border border-emerald-500/10 w-fit">
+                                <ShieldCheck className="w-3 h-3" /> Success
+                              </div>
+                            )}
+                            <span className={cn(
+                              "text-[8px] font-black px-1.5 py-0.5 rounded border w-fit",
+                              event.category === "CREATE" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                              event.category === "DELETE" ? "bg-red-500/10 text-red-400 border-red-500/20" :
+                              event.category === "UPDATE" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
+                              "bg-slate-500/10 text-slate-400 border-slate-500/20"
+                            )}>
+                              {event.category}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col gap-1 max-w-[200px]">
+                            {event.resources?.length > 0 ? (
+                              event.resources.map((r: any, idx: number) => (
+                                <div key={idx} className="flex items-center gap-2 text-[10px] text-slate-400 bg-slate-950/40 px-2 py-1 rounded border border-slate-800/50 truncate">
+                                  <Box className="w-3 h-3 flex-shrink-0" />
+                                  <span className="truncate">{r.name || r.type}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <span className="text-[10px] text-slate-600 italic">No resource details</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2 text-slate-400 text-[11px] font-medium">
+                              <User className="w-3 h-3 opacity-50" />
+                              {event.user}
+                            </div>
+                            {event.user !== event.rawUser && (
+                              <span className="text-[8px] text-slate-600 font-mono truncate max-w-[120px]">via {event.rawUser}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right text-slate-500 font-mono text-[10px]">
+                          {new Date(event.time).toLocaleTimeString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <style jsx global>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #1e293b;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #334155;
+        }
+        @keyframes marquee {
+          0% { transform: translateX(100%); }
+          100% { transform: translateX(-100%); }
+        }
+        .animate-marquee {
+          animation: marquee 30s linear infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function HealthCard({ label, value, status, icon: Icon, desc }: any) {
+  const styles: any = {
+    success: "from-emerald-500/20 to-emerald-500/5 border-emerald-500/20 text-emerald-400",
+    danger: "from-red-500/20 to-red-500/5 border-red-500/20 text-red-400",
+    warning: "from-orange-500/20 to-orange-500/5 border-orange-500/20 text-orange-400",
+    info: "from-blue-500/20 to-blue-500/5 border-blue-500/20 text-blue-400"
+  };
+
+  return (
+    <div className={cn(
+      "relative overflow-hidden bg-gradient-to-br border rounded-2xl p-6 shadow-sm group",
+      styles[status]
+    )}>
+      <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-125 group-hover:opacity-20 transition-all">
+        <Icon className="w-16 h-16" />
+      </div>
+      <div className="relative z-10 space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">{label}</p>
+          <Icon className="w-4 h-4 opacity-60" />
+        </div>
+        <div>
+          <h2 className="text-3xl font-black tracking-tighter text-white">{value}</h2>
+          <p className="text-xs font-medium opacity-60 mt-1">{desc}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IncidentItem({ incident, colors }: any) {
+  return (
+    <div className="p-4 hover:bg-slate-800/20 transition-colors group">
+      <div className="flex items-start gap-4">
+        <div className={cn(
+          "mt-1 p-2 rounded-lg border flex-shrink-0",
+          colors[incident.type]
+        )}>
+          {incident.type === 'critical' ? <Flame className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+        </div>
+        <div className="space-y-1 min-w-0 flex-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">{incident.source}</span>
+            <span className="text-[9px] font-mono text-slate-600">{new Date(incident.time).toLocaleTimeString()}</span>
+          </div>
+          <h4 className="text-sm font-bold text-slate-200 truncate group-hover:text-blue-400 transition-colors">{incident.title}</h4>
+          <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed font-medium">{incident.message}</p>
         </div>
       </div>
     </div>
