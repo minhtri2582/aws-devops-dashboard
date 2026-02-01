@@ -118,10 +118,10 @@ export default function SREDashboard() {
     
     // CloudWatch Errors
     logData?.logs?.forEach((group: any) => {
-      group.events.forEach((event: any) => {
+      group.events.forEach((event: any, idx: number) => {
         if (event.severity === "critical" || event.severity === "error") {
           incidents.push({
-            id: `cw-${event.timestamp}-${group.groupName}`,
+            id: `cw-${event.timestamp}-${group.groupName}-${idx}`,
             source: "CloudWatch",
             type: event.severity,
             title: group.groupName.split('/').pop(),
