@@ -59,6 +59,7 @@ export default function SREDashboard() {
   const [remediating, setRemediating] = useState<string | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditResults, setAuditResults] = useState<any>(null);
+  const [selectedResource, setSelectedResource] = useState<any>(null);
 
   const runAudit = async () => {
     setAuditLoading(true);
@@ -607,7 +608,12 @@ export default function SREDashboard() {
                               <Play className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          <button className="text-[10px] font-black uppercase text-blue-500 hover:text-blue-400 transition-colors ml-2">Details →</button>
+                          <button 
+                            onClick={() => setSelectedResource(res)}
+                            className="text-[10px] font-black uppercase text-blue-500 hover:text-blue-400 transition-colors ml-2"
+                          >
+                            Details →
+                          </button>
                        </div>
                     </div>
                   </div>
@@ -703,6 +709,83 @@ export default function SREDashboard() {
         </div>
       </div>
 
+      {/* Resource Detail Modal */}
+      {selectedResource && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-800 flex items-center justify-between bg-slate-800/20">
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  "p-2 rounded-lg border",
+                  selectedResource.category === "Compute" ? "bg-blue-500/10 border-blue-500/20 text-blue-400" : "bg-orange-500/10 border-orange-500/20 text-orange-400"
+                )}>
+                  {selectedResource.category === "Compute" ? <Cpu className="w-5 h-5" /> : <Database className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-100 uppercase tracking-tight">{selectedResource.name}</h3>
+                  <p className="text-[10px] font-mono text-slate-500">{selectedResource.id}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedResource(null)}
+                className="p-2 hover:bg-slate-800 rounded-xl text-slate-500 hover:text-white transition-all"
+              >
+                <ZapOff className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              <div className="grid grid-cols-2 gap-6">
+                <DetailField label="Status" value={selectedResource.state} highlight />
+                <DetailField label="Type" value={selectedResource.instanceType || selectedResource.instanceClass} />
+                <DetailField label="Category" value={selectedResource.category} />
+                <DetailField label="Region" value={dashboardData?.identity?.account ? "ap-southeast-1" : "Loading..."} />
+                {selectedResource.publicIp && <DetailField label="Public IP" value={selectedResource.publicIp} mono />}
+                {selectedResource.privateIp && <DetailField label="Private IP" value={selectedResource.privateIp} mono />}
+                {selectedResource.endpoint && <DetailField label="Endpoint" value={selectedResource.endpoint} mono full />}
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-2">
+                  <Activity className="w-3 h-3" /> Performance Metrics
+                </h4>
+                <div className="bg-slate-950/50 border border-slate-800 rounded-2xl p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-400">Current CPU Utilization</span>
+                    <span className={cn("text-sm font-black", selectedResource.cpu > 80 ? "text-red-400" : "text-emerald-400")}>
+                      {selectedResource.cpu.toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
+                    <div 
+                      className={cn(
+                        "h-full transition-all duration-1000",
+                        selectedResource.cpu > 80 ? "bg-red-500" : selectedResource.cpu > 50 ? "bg-orange-500" : "bg-emerald-500"
+                      )}
+                      style={{ width: `${Math.max(2, selectedResource.cpu)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button 
+                  onClick={() => handleRemediate('reboot', selectedResource.category === 'Compute' ? 'EC2' : 'RDS', selectedResource.id)}
+                  className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-black py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                >
+                  <RotateCw className="w-4 h-4" /> Reboot
+                </button>
+                <button 
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                >
+                  <ExternalLink className="w-4 h-4" /> AWS Console
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 4px;
@@ -725,6 +808,21 @@ export default function SREDashboard() {
           animation: marquee 30s linear infinite;
         }
       `}</style>
+    </div>
+  );
+}
+
+function DetailField({ label, value, mono, full, highlight }: any) {
+  return (
+    <div className={cn("space-y-1", full && "col-span-2")}>
+      <p className="text-[9px] font-black uppercase text-slate-600 tracking-widest">{label}</p>
+      <div className={cn(
+        "bg-slate-950 px-3 py-2 rounded-lg border border-slate-800 text-xs font-medium",
+        mono && "font-mono text-[10px]",
+        highlight && (value === 'running' || value === 'available' ? "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" : "text-orange-400 border-orange-500/20 bg-orange-500/5")
+      )}>
+        {value || "N/A"}
+      </div>
     </div>
   );
 }
@@ -785,6 +883,21 @@ function IncidentItem({ incident, colors }: any) {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailField({ label, value, mono, full, highlight }: any) {
+  return (
+    <div className={cn("space-y-1", full && "col-span-2")}>
+      <p className="text-[9px] font-black uppercase text-slate-600 tracking-widest">{label}</p>
+      <div className={cn(
+        "bg-slate-950 px-3 py-2 rounded-lg border border-slate-800 text-xs font-medium",
+        mono && "font-mono text-[10px]",
+        highlight && (value === 'running' || value === 'available' ? "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" : "text-orange-400 border-orange-500/20 bg-orange-500/5")
+      )}>
+        {value || "N/A"}
       </div>
     </div>
   );
