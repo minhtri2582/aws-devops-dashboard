@@ -63,6 +63,7 @@ spec:
             secretKeyRef:
               name: aws-devops-dashboard-secrets
               key: AWS_SESSION_TOKEN
+              optional: true
         resources:
           limits:
             cpu: "500m"
