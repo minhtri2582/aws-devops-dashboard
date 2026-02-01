@@ -57,6 +57,25 @@ export default function SREDashboard() {
   const [expandedLogs, setExpandedLogs] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [remediating, setRemediating] = useState<string | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditResults, setAuditResults] = useState<any>(null);
+
+  const runAudit = async () => {
+    setAuditLoading(true);
+    try {
+      const res = await fetch("/api/audit", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setAuditResults(data);
+      } else {
+        alert("Audit failed: " + data.message);
+      }
+    } catch (e) {
+      alert("An error occurred during the audit.");
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   const handleRemediate = async (action: string, type: string, resourceId: string) => {
     const confirmMsg = `Are you sure you want to ${action} ${type} ${resourceId}?`;
@@ -326,11 +345,68 @@ export default function SREDashboard() {
                   </div>
                 </div>
               </div>
-              <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-black uppercase tracking-widest transition-all">
-                Run Full Audit
+              <button 
+                onClick={runAudit}
+                disabled={auditLoading}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2"
+              >
+                {auditLoading ? <RotateCw className="w-3 h-3 animate-spin" /> : <Shield className="w-3 h-3 text-blue-400" />}
+                {auditLoading ? "Auditing..." : "Run Full Audit"}
               </button>
             </div>
           </div>
+
+          {/* Audit Results Modal/Overlay */}
+          {auditResults && (
+            <div className="xl:col-span-12">
+              <div className="bg-blue-950/20 border border-blue-500/30 rounded-2xl p-6 relative overflow-hidden animate-in fade-in slide-in-from-top-4">
+                <button 
+                  onClick={() => setAuditResults(null)}
+                  className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors"
+                >
+                  <ZapOff className="w-4 h-4" />
+                </button>
+                <div className="flex items-center gap-2 mb-6">
+                  <Activity className="w-4 h-4 text-blue-400" />
+                  <h3 className="text-sm font-black uppercase tracking-widest text-white">Audit Report: {new Date(auditResults.timestamp).toLocaleTimeString()}</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {auditResults.findings.map((finding: any, idx: number) => (
+                    <div key={idx} className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-[10px] font-black uppercase border",
+                          finding.severity === 'critical' ? "bg-red-500/10 text-red-400 border-red-500/20" :
+                          finding.severity === 'warning' ? "bg-orange-500/10 text-orange-400 border-orange-500/20" :
+                          "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                        )}>
+                          {finding.severity}
+                        </span>
+                        <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">{finding.category}</span>
+                      </div>
+                      <h4 className="text-sm font-bold text-slate-200">{finding.title}</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed">{finding.message}</p>
+                      {finding.resources?.length > 0 && (
+                        <div className="pt-2 flex flex-wrap gap-2">
+                          {finding.resources.map((r: string) => (
+                            <span key={r} className="text-[9px] font-mono text-slate-500 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {auditResults.findings.length === 0 && (
+                    <div className="md:col-span-3 p-12 text-center">
+                      <ShieldCheck className="w-12 h-12 text-emerald-500 mx-auto mb-4 opacity-20" />
+                      <p className="text-slate-400 font-bold">No issues found in current audit cycle.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           
           {/* Left Column: Alerts & Logs */}
           <div className="xl:col-span-4 space-y-8">
