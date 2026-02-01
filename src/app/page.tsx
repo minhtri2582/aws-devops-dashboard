@@ -278,7 +278,7 @@ export default function SREDashboard() {
           />
           <HealthCard 
             label="Cloud Assets"
-            value={((resourceData?.compute?.length || 0) + (resourceData?.database || 0) + (eksLogData?.logs?.length || 0)).toString()}
+            value={((resourceData?.compute?.length || 0) + (resourceData?.database?.length || 0) + (eksLogData?.logs?.length || 0)).toString()}
             status="info"
             icon={Box}
             desc={`${eksLogData?.logs?.length || 0} EKS Clusters Active`}
