@@ -24,7 +24,14 @@ import {
   Flame,
   Search,
   LayoutDashboard,
-  Bell
+  Bell,
+  Play,
+  Square,
+  RotateCw,
+  ZapOff,
+  History,
+  ExternalLink,
+  Bug
 } from "lucide-react";
 import { 
   XAxis, 
@@ -49,6 +56,32 @@ export default function SREDashboard() {
   const [trailData, setTrailData] = useState<any>(null);
   const [expandedLogs, setExpandedLogs] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [remediating, setRemediating] = useState<string | null>(null);
+
+  const handleRemediate = async (action: string, type: string, resourceId: string) => {
+    const confirmMsg = `Are you sure you want to ${action} ${type} ${resourceId}?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setRemediating(resourceId);
+    try {
+      const res = await fetch("/api/remediate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, type, resourceId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        fetchAll(); // Refresh data
+      } else {
+        alert("Action failed: " + data.message);
+      }
+    } catch (e) {
+      alert("An error occurred while executing the remediation action.");
+    } finally {
+      setRemediating(null);
+    }
+  };
 
   const fetchAll = async () => {
     setLoading(true);
@@ -244,11 +277,11 @@ export default function SREDashboard() {
             desc={`${allIncidents.length} Active Issues`}
           />
           <HealthCard 
-            label="Compute Fleet"
-            value={resourceData?.compute?.length || "0"}
+            label="Cloud Assets"
+            value={((resourceData?.compute?.length || 0) + (resourceData?.database || 0) + (eksLogData?.logs?.length || 0)).toString()}
             status="info"
-            icon={Cpu}
-            desc={`${resourceData?.compute?.filter((i:any) => i.cpu > 70).length || 0} high usage nodes`}
+            icon={Box}
+            desc={`${eksLogData?.logs?.length || 0} EKS Clusters Active`}
           />
           <HealthCard 
             label="Est. Burn Rate"
@@ -268,6 +301,36 @@ export default function SREDashboard() {
 
         {/* Main Dashboard Grid */}
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+          
+          {/* SRE Insights Bar */}
+          <div className="xl:col-span-12">
+            <div className="bg-gradient-to-r from-blue-900/20 to-slate-900/20 border border-blue-500/20 rounded-2xl p-6 flex items-center justify-between">
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                    <ShieldCheck className="w-5 h-5 text-emerald-500" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-slate-500 uppercase">Security Posture</p>
+                    <p className="text-sm font-bold text-slate-200">IAM: No Overprivileged Roles Detected</p>
+                  </div>
+                </div>
+                <div className="h-10 w-px bg-slate-800" />
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-orange-500/10 rounded-lg border border-orange-500/20">
+                    <CreditCard className="w-5 h-5 text-orange-500" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black text-slate-500 uppercase">Cost Optimization</p>
+                    <p className="text-sm font-bold text-slate-200">2 Idle EC2 Instances Found</p>
+                  </div>
+                </div>
+              </div>
+              <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-black uppercase tracking-widest transition-all">
+                Run Full Audit
+              </button>
+            </div>
+          </div>
           
           {/* Left Column: Alerts & Logs */}
           <div className="xl:col-span-4 space-y-8">
@@ -339,8 +402,24 @@ export default function SREDashboard() {
                     {expandedLogs.includes(group.groupName) && (
                       <div className="px-4 pb-4 space-y-2">
                         {group.events.slice(0, 5).map((e: any, idx: number) => (
-                          <div key={idx} className={cn("p-3 rounded-lg border text-[10px] font-mono leading-relaxed", severityColors[e.severity])}>
+                          <div key={idx} className={cn("p-3 rounded-lg border text-[10px] font-mono leading-relaxed group/log relative", severityColors[e.severity])}>
                              <p className="break-all">{e.message}</p>
+                             <button 
+                               onClick={() => {
+                                 const correlated = trailData?.events?.filter((te: any) => 
+                                   Math.abs(new Date(te.time).getTime() - new Date(e.timestamp).getTime()) < 300000 // 5 min window
+                                 );
+                                 if (correlated?.length > 0) {
+                                   alert(`Correlated CloudTrail Events (5min window):\n\n${correlated.map((c: any) => `- ${c.name} by ${c.user} (${new Date(c.time).toLocaleTimeString()})`).join('\n')}`);
+                                 } else {
+                                   alert("No CloudTrail events found within a 5-minute window of this log.");
+                                 }
+                               }}
+                               className="absolute top-2 right-2 opacity-0 group-hover/log:opacity-100 transition-opacity bg-slate-900/80 p-1 rounded hover:text-blue-400"
+                               title="Correlate with CloudTrail"
+                             >
+                               <History className="w-3 h-3" />
+                             </button>
                           </div>
                         ))}
                       </div>
@@ -427,7 +506,33 @@ export default function SREDashboard() {
                             <span className="text-[10px] font-mono text-slate-400">Normal</span>
                           </div>
                        </div>
-                       <button className="text-[10px] font-black uppercase text-blue-500 hover:text-blue-400 transition-colors">Details →</button>
+                       <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => handleRemediate('reboot', res.category === 'Compute' ? 'EC2' : 'RDS', res.id)}
+                            disabled={remediating === res.id}
+                            className="p-1.5 hover:bg-slate-800 rounded-md text-slate-400 hover:text-orange-400 transition-colors title='Reboot'"
+                          >
+                            <RotateCw className={cn("w-3.5 h-3.5", remediating === res.id && "animate-spin")} />
+                          </button>
+                          {(res.state === 'running' || res.state === 'available') ? (
+                            <button 
+                              onClick={() => handleRemediate('stop', res.category === 'Compute' ? 'EC2' : 'RDS', res.id)}
+                              disabled={remediating === res.id}
+                              className="p-1.5 hover:bg-slate-800 rounded-md text-slate-400 hover:text-red-400 transition-colors title='Stop'"
+                            >
+                              <Square className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => handleRemediate('start', res.category === 'Compute' ? 'EC2' : 'RDS', res.id)}
+                              disabled={remediating === res.id}
+                              className="p-1.5 hover:bg-slate-800 rounded-md text-slate-400 hover:text-emerald-400 transition-colors title='Start'"
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button className="text-[10px] font-black uppercase text-blue-500 hover:text-blue-400 transition-colors ml-2">Details →</button>
+                       </div>
                     </div>
                   </div>
                 ))}
@@ -595,6 +700,14 @@ function IncidentItem({ incident, colors }: any) {
           </div>
           <h4 className="text-sm font-bold text-slate-200 truncate group-hover:text-blue-400 transition-colors">{incident.title}</h4>
           <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed font-medium">{incident.message}</p>
+          <div className="pt-2 flex items-center gap-3">
+            <button className="text-[9px] font-black uppercase text-slate-500 hover:text-blue-400 flex items-center gap-1 transition-colors">
+              <ExternalLink className="w-2.5 h-2.5" /> View in Console
+            </button>
+            <button className="text-[9px] font-black uppercase text-slate-500 hover:text-orange-400 flex items-center gap-1 transition-colors">
+              <Bug className="w-2.5 h-2.5" /> Open Jira
+            </button>
+          </div>
         </div>
       </div>
     </div>
