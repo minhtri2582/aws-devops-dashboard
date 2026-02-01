@@ -16,6 +16,27 @@ spec:
       containers:
       - name: runner
         image: myoung34/github-runner:latest
+        imagePullPolicy: Always
+        resources:
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+        securityContext:
+          privileged: true # Required for Docker operations
+          allowPrivilegeEscalation: true 
+          runAsNonRoot: false # This specific image often needs root for docker sock access
+          capabilities:
+            drop:
+              - ALL
+            add:
+              - CHOWN
+              - DAC_OVERRIDE
+              - FOWNER
+              - SETGID
+              - SETUID
         env:
         - name: REPO_URL
           valueFrom:

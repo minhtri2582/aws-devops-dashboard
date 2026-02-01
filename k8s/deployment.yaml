@@ -16,8 +16,32 @@ spec:
       containers:
       - name: dashboard
         image: minhtri2582/aws-devops:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 3000
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        livenessProbe:
+          httpGet:
+            path: /login
+            port: 3000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /login
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
         env:
         - name: PASSWORD_LOGIN
           valueFrom:
@@ -46,3 +70,6 @@ spec:
           requests:
             cpu: "100m"
             memory: "256Mi"
+      volumes:
+      - name: tmp
+        emptyDir: {}
