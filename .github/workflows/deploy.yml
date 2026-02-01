@@ -24,7 +24,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: ./aws-devops-dashboard
+          context: .
           push: true
           tags: minhtri2582/aws-devops:latest
           cache-from: type=gha
@@ -45,8 +45,8 @@ jobs:
 
       - name: Deploy to K3s
         run: |
-          kubectl apply -f aws-devops-dashboard/k8s/secret.yaml
-          kubectl apply -f aws-devops-dashboard/k8s/deployment.yaml
-          kubectl apply -f aws-devops-dashboard/k8s/service.yaml
-          kubectl apply -f aws-devops-dashboard/k8s/ingress.yaml
+          kubectl apply -f k8s/secret.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/ingress.yaml
           kubectl rollout restart deployment/aws-devops-dashboard -n default
