@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-runner
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: github-runner
+  template:
+    metadata:
+      labels:
+        app: github-runner
+    spec:
+      containers:
+      - name: runner
+        image: myoung34/github-runner:latest
+        env:
+        - name: REPO_URL
+          valueFrom:
+            secretKeyRef:
+              name: github-runner-secret
+              key: REPO_URL
+        - name: RUNNER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-runner-secret
+              key: GITHUB_TOKEN
+        - name: RUNNER_NAME
+          value: "k3s-self-hosted-runner"
+        - name: RUNNER_LABELS
+          value: "self-hosted,k3s"
+        - name: RUNNER_WORKDIR
+          value: "/tmp/github-runner-work"
+        securityContext:
+          privileged: true # Required if you want to run Docker-in-Docker for builds
+        volumeMounts:
+        - name: var-run-docker-sock
+          mountPath: /var/run/docker.sock
+      volumes:
+      - name: var-run-docker-sock
+        hostPath:
+          path: /var/run/docker.sock
