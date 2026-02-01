@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "AWS Core Dashboard",
+  title: "DevOps Console v2.0",
   description: "Unified AWS Infrastructure Monitor",
 };
 

@@ -1,4 +1,4 @@
-# AWS Ops Console v2.0 (SRE/DevOps Focused)
+# AWS DevOps Console v2.0 (SRE/DevOps Focused)
 
 A high-performance, real-time AWS monitoring dashboard designed specifically for SRE and DevOps roles. It prioritizes system health, incident response, and resource utilization.
 
@@ -38,7 +38,7 @@ A high-performance, real-time AWS monitoring dashboard designed specifically for
    npm run dev
    ```
 
-4. Open [http://localhost:3000](http://localhost:3000) to view your Ops Console.
+4. Open [http://localhost:3000](http://localhost:3000) to view your DevOps Console.
 
 ## Containerization & Deployment
 

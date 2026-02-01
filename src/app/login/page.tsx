@@ -45,7 +45,7 @@ export default function LoginPage() {
           </div>
           <div className="space-y-2">
             <h1 className="text-3xl font-black tracking-tighter text-white uppercase">
-              Ops Console <span className="text-blue-500">v2.0</span>
+              DevOps Console <span className="text-blue-500">v2.0</span>
             </h1>
             <p className="text-slate-500 text-sm font-medium">
               Enterprise Cloud Observability Platform

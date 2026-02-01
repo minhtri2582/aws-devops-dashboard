@@ -238,7 +238,7 @@ export default function SREDashboard() {
               <div className="p-2 bg-blue-600 rounded-lg shadow-lg shadow-blue-600/20">
                 <LayoutDashboard className="w-6 h-6 text-white" />
               </div>
-              <h1 className="text-2xl font-black tracking-tighter uppercase text-white">Ops Console <span className="text-blue-500">v2.0</span></h1>
+              <h1 className="text-2xl font-black tracking-tighter uppercase text-white">DevOps Console <span className="text-blue-500">v2.0</span></h1>
             </div>
             <p className="text-slate-500 text-sm font-medium flex items-center gap-2">
               <Circle className="w-2 h-2 fill-emerald-500 text-emerald-500" />
