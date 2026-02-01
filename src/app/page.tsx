@@ -887,18 +887,3 @@ function IncidentItem({ incident, colors }: any) {
     </div>
   );
 }
-
-function DetailField({ label, value, mono, full, highlight }: any) {
-  return (
-    <div className={cn("space-y-1", full && "col-span-2")}>
-      <p className="text-[9px] font-black uppercase text-slate-600 tracking-widest">{label}</p>
-      <div className={cn(
-        "bg-slate-950 px-3 py-2 rounded-lg border border-slate-800 text-xs font-medium",
-        mono && "font-mono text-[10px]",
-        highlight && (value === 'running' || value === 'available' ? "text-emerald-400 border-emerald-500/20 bg-emerald-500/5" : "text-orange-400 border-orange-500/20 bg-orange-500/5")
-      )}>
-        {value || "N/A"}
-      </div>
-    </div>
-  );
-}
